@@ -4,6 +4,7 @@ import {
   Recycle,
   LayoutDashboard,
   Cpu,
+  FolderTree,
   Truck,
   Network,
   Users,
@@ -15,8 +16,9 @@ import Button from "../atoms/Button";
 import { useAuth } from "../../context/AuthContext";
 
 const NAV_ITEMS = [
-  { path: "/", label: "Dashboard & SQL", icon: LayoutDashboard },
-  { path: "/dispositivos", label: "Dispositivos & Trazabilidad", icon: Cpu },
+  { path: "/", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/catalogos", label: "Catálogos (Obj & Cat)", icon: FolderTree },
+  { path: "/dispositivos", label: "Dispositivos", icon: Cpu },
   { path: "/logistica", label: "Solicitudes & Stock", icon: Truck },
   { path: "/red-flujo", label: "Red de Flujo", icon: Network },
   { path: "/usuarios", label: "Actores & Roles", icon: Users },
@@ -30,7 +32,6 @@ const Navbar: React.FC = () => {
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-[#D6E3DC] px-4 sm:px-6 py-3 shadow-xs">
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-        {/* Brand Logo */}
         <Link to="/" className="flex items-center gap-3 group">
           <div className="w-10 h-10 rounded-2xl bg-[#274C3D] flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
             <Recycle className="w-5 h-5 text-emerald-300" />
@@ -40,12 +41,11 @@ const Navbar: React.FC = () => {
               EcoRAEE <span className="text-[#274C3D]">Cloud</span>
             </span>
             <span className="block text-[10px] font-bold uppercase tracking-wider text-[#527063]">
-              Economía Circular · Parte II Local
+              AWS Ready · DTOs & UUID
             </span>
           </div>
         </Link>
 
-        {/* Navigation Items */}
         <nav className="flex items-center gap-1.5 overflow-x-auto py-1">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
@@ -54,7 +54,7 @@ const Navbar: React.FC = () => {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
                   isActive
                     ? "bg-[#274C3D] text-white shadow-xs"
                     : "text-[#274C3D] hover:bg-[#EBF2EE] hover:text-[#1E3B2F]"
@@ -67,7 +67,6 @@ const Navbar: React.FC = () => {
           })}
         </nav>
 
-        {/* User Pill / Role Switch */}
         <div className="flex items-center gap-3">
           {user ? (
             <div className="flex items-center gap-3 pl-3 border-l border-[#D6E3DC]">

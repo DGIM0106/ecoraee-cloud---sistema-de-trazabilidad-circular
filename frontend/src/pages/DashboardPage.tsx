@@ -14,34 +14,41 @@ import {
   Activity,
   Layers,
   FileSpreadsheet,
+  ShieldAlert,
 } from "lucide-react";
 import apiClient from "../api/client";
-import { Centro, DashboardData } from "../types";
+import { CentroDTO, DashboardDTO, UUID } from "../types";
 import Button from "../components/atoms/Button";
 import Input from "../components/atoms/Input";
 
 const DashboardPage: React.FC = () => {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [centros, setCentros] = useState<Centro[]>([]);
+  const [data, setData] = useState<DashboardDTO | null>(null);
+  const [centros, setCentros] = useState<CentroDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Nueva alerta rápida
   const [mostrarModalAlerta, setMostrarModalAlerta] = useState(false);
   const [mensajeAlerta, setMensajeAlerta] = useState("");
-  const [nivelCriticidad, setNivelCriticidad] = useState("MEDIA");
-  const [idCentroAlerta, setIdCentroAlerta] = useState<number>(1);
+  const [nivelCriticidad, setNivelCriticidad] = useState("Media");
+  const [idCentroAlerta, setIdCentroAlerta] = useState<UUID>("");
 
   const cargarDashboard = useCallback(async () => {
     try {
       setLoading(true);
+      setErrorMsg(null);
       const [dashRes, catRes] = await Promise.all([
-        apiClient.get<DashboardData>("/red/dashboard"),
+        apiClient.get<DashboardDTO>("/red/dashboard"),
         apiClient.get("/catalogos/resumen"),
       ]);
       setData(dashRes.data);
-      setCentros(catRes.data.centros || []);
-    } catch (err) {
+      const loadedCentros: CentroDTO[] = catRes.data.centros || [];
+      setCentros(loadedCentros);
+      if (loadedCentros.length > 0) {
+        setIdCentroAlerta((prev) => prev || loadedCentros[0].id_centro);
+      }
+    } catch (err: any) {
       console.error("Error al cargar el dashboard:", err);
+      setErrorMsg("No se pudo conectar con la API de EcoRAEE. Verifica que el backend esté activo.");
     } finally {
       setLoading(false);
     }
@@ -51,7 +58,7 @@ const DashboardPage: React.FC = () => {
     cargarDashboard();
   }, [cargarDashboard]);
 
-  const handleResolverAlerta = async (id_alerta: number) => {
+  const handleResolverAlerta = async (id_alerta: UUID) => {
     try {
       await apiClient.put(`/red/alertas/${id_alerta}`, { estado_alerta: "Resuelta" });
       await cargarDashboard();
@@ -62,18 +69,19 @@ const DashboardPage: React.FC = () => {
 
   const handleCrearAlerta = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mensajeAlerta.trim()) return;
+    if (!mensajeAlerta.trim() || !idCentroAlerta) return;
     try {
       await apiClient.post("/red/alertas", {
-        mensaje: mensajeAlerta,
+        mensaje: mensajeAlerta.trim(),
         nivel_criticidad: nivelCriticidad,
+        estado_alerta: "Activa",
         id_centro: idCentroAlerta,
       });
       setMensajeAlerta("");
       setMostrarModalAlerta(false);
       await cargarDashboard();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert(err.response?.data?.detail || "Error al crear la alerta.");
     }
   };
 
@@ -102,18 +110,25 @@ const DashboardPage: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-      {/* Banner de Bienvenida y Estado */}
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Banner */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#D6E3DC] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-[#EBF2EE] text-[#274C3D] text-xs font-bold uppercase tracking-wider mb-2 border border-[#C5D8CF]">
             <Activity className="w-3.5 h-3.5 text-[#274C3D]" />
-            EcoRAEE Cloud · Panel de Control & Consultas SQL
+            EcoRAEE Cloud · Panel de Control & AWS Ready
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-[#1F2925] tracking-tight">
             Trazabilidad Integral de Residuos RAEE
           </h1>
           <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-            Integración de la base de datos relacional (23 tablas), API REST modular en FastAPI y aplicación React bajo los lineamientos de economía circular.
+            Base de datos SQL Server / AWS RDS con UUIDs, API REST con DTOs en FastAPI (EC2), evidencias en AWS S3 y catálogos controlados de Categorías y Objetos.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -135,9 +150,8 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid de 4 KPIs Clave */}
+      {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* KPI 1 */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-[#527063]">
@@ -148,9 +162,7 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-[#1F2925]">
-              {kpis.total_dispositivos}
-            </div>
+            <div className="text-3xl font-black text-[#1F2925]">{kpis.total_dispositivos}</div>
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
               <span className="font-bold text-[#274C3D]">
                 {kpis.porcentaje_trazabilidad_cerrada}%
@@ -166,7 +178,6 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* KPI 2 */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-[#527063]">
@@ -177,9 +188,7 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-[#1F2925]">
-              {kpis.dispositivos_evaluados}
-            </div>
+            <div className="text-3xl font-black text-[#1F2925]">{kpis.dispositivos_evaluados}</div>
             <p className="text-xs text-slate-500 mt-1">
               {kpis.dispositivos_pendientes_evaluar} aún pendientes en mesas de diagnóstico
             </p>
@@ -198,7 +207,6 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* KPI 3 */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-[#527063]">
@@ -209,20 +217,16 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-[#1F2925]">
-              {kpis.stock_total_inventario}
-            </div>
+            <div className="text-3xl font-black text-[#1F2925]">{kpis.stock_total_inventario}</div>
             <p className="text-xs text-slate-500 mt-1">
               Unidades en centros de acopio y clasificación
             </p>
           </div>
           <div className="flex items-center gap-2 text-[11px] font-semibold text-[#527063]">
-            <span>{kpis.total_solicitudes} Solicitudes</span> ·{" "}
-            <span>{kpis.total_lotes} Lotes</span>
+            <span>{kpis.total_solicitudes} Solicitudes</span> · <span>{kpis.total_lotes} Lotes</span>
           </div>
         </div>
 
-        {/* KPI 4 */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-[#527063]">
@@ -233,9 +237,7 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-[#1F2925]">
-              {kpis.alertas_activas}
-            </div>
+            <div className="text-3xl font-black text-[#1F2925]">{kpis.alertas_activas}</div>
             <p className="text-xs text-slate-500 mt-1">
               Capacidad y logística que requieren atención
             </p>
@@ -249,7 +251,7 @@ const DashboardPage: React.FC = () => {
 
       {/* Distribución por Clasificación Circular */}
       <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-[#274C3D]" />
             <h2 className="text-base font-bold text-[#1F2925]">
@@ -257,7 +259,7 @@ const DashboardPage: React.FC = () => {
             </h2>
           </div>
           <span className="text-xs text-slate-500">
-            Regla de Jerarquía: Reutilización &gt; Reacondicionamiento &gt; Reciclaje &gt; Disposición
+            Jerarquía: Reutilización &gt; Reacondicionamiento &gt; Reciclaje &gt; Disposición
           </span>
         </div>
 
@@ -281,14 +283,13 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Consultas Analíticas Oficiales de SQL Server (04_consultas.sql) */}
+      {/* Consultas Analíticas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Consulta 2: Dispositivos por Centro y Estado */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#274C3D] bg-[#EBF2EE] px-2.5 py-0.5 rounded-lg border border-[#C5D8CF]">
-                Consulta #2 de 04_consultas.sql
+                Consulta Analítica #2
               </span>
               <h3 className="text-base font-bold text-[#1F2925] mt-1">
                 Dispositivos por Centro y Estado Actual
@@ -327,12 +328,11 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Consulta 3: Categoría vs Clasificación Asignada */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#274C3D] bg-[#EBF2EE] px-2.5 py-0.5 rounded-lg border border-[#C5D8CF]">
-                Consulta #3 de 04_consultas.sql
+                Consulta Analítica #3
               </span>
               <h3 className="text-base font-bold text-[#1F2925] mt-1">
                 Categoría vs Clasificación Técnica
@@ -372,12 +372,12 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Consulta 5: Dispositivos Pendientes de Evaluación */}
+      {/* Pendientes de Evaluación */}
       <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-              Consulta #5 de 04_consultas.sql · Acción Requerida
+              Acción Requerida
             </span>
             <h3 className="text-base font-bold text-[#1F2925] mt-1">
               Dispositivos Pendientes de Evaluación Técnica
@@ -396,8 +396,8 @@ const DashboardPage: React.FC = () => {
             <table className="w-full text-xs text-left">
               <thead className="bg-[#F2F7F4] text-[#274C3D] uppercase text-[10px] tracking-wider">
                 <tr>
-                  <th className="py-2.5 px-3 rounded-l-xl">Serie / Código</th>
-                  <th className="py-2.5 px-3">Equipo</th>
+                  <th className="py-2.5 px-3 rounded-l-xl">Serie</th>
+                  <th className="py-2.5 px-3">Objeto (BD)</th>
                   <th className="py-2.5 px-3">Categoría</th>
                   <th className="py-2.5 px-3">Lote</th>
                   <th className="py-2.5 px-3 rounded-r-xl text-right">Acción</th>
@@ -410,7 +410,7 @@ const DashboardPage: React.FC = () => {
                       {p.num_serie}
                     </td>
                     <td className="py-2.5 px-3 font-medium text-[#1F2925]">
-                      {p.marca} {p.modelo}
+                      {p.nombre_objeto || `${p.marca} ${p.modelo}`}
                     </td>
                     <td className="py-2.5 px-3 text-slate-600">{p.nombre_categoria}</td>
                     <td className="py-2.5 px-3">
@@ -439,17 +439,14 @@ const DashboardPage: React.FC = () => {
 
       {/* Alertas y Auditoría */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Alertas Operativas */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Bell className="w-5 h-5 text-amber-600" />
-              <h3 className="text-base font-bold text-[#1F2925]">
-                Alertas Activas del Sistema
-              </h3>
+              <h3 className="text-base font-bold text-[#1F2925]">Alertas del Sistema</h3>
             </div>
             <span className="text-xs font-bold text-[#274C3D]">
-              {data?.alertas.filter((a) => a.estado_alerta === "Activa").length} Activas
+              {data?.alertas.filter((a) => a.estado_alerta === "Activa").length || 0} Activas
             </span>
           </div>
 
@@ -467,14 +464,17 @@ const DashboardPage: React.FC = () => {
                   <div className="flex items-center gap-2 mb-1">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        a.nivel_criticidad === "ALTA"
+                        a.nivel_criticidad === "Alta" || a.nivel_criticidad === "Critica"
                           ? "bg-rose-100 text-rose-800"
-                          : a.nivel_criticidad === "MEDIA"
+                          : a.nivel_criticidad === "Media"
                           ? "bg-amber-100 text-amber-800"
                           : "bg-slate-200 text-slate-700"
                       }`}
                     >
                       {a.nivel_criticidad}
+                    </span>
+                    <span className="text-slate-500 text-[10px] font-medium">
+                      {a.nombre_centro}
                     </span>
                     <span className="text-slate-400 text-[10px]">
                       {new Date(a.fecha_generacion).toLocaleDateString()}
@@ -498,7 +498,6 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Registro de Auditoría */}
         <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -518,15 +517,15 @@ const DashboardPage: React.FC = () => {
               >
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-bold text-[#274C3D] uppercase">
-                    {aud.modulo} · {aud.accion}
+                    {aud.tabla_afectada} · {aud.tipo_operacion}
                   </span>
                   <span className="text-slate-400 font-mono text-[10px]">
-                    {new Date(aud.fecha_accion).toLocaleTimeString()}
+                    {new Date(aud.fecha_accion).toLocaleString()}
                   </span>
                 </div>
                 <p className="text-slate-700">{aud.detalle}</p>
                 <span className="text-[10px] text-slate-500 font-mono block">
-                  Operador: {aud.usuario}
+                  Operador: {aud.nombre_usuario}
                 </span>
               </div>
             ))}
@@ -563,9 +562,10 @@ const DashboardPage: React.FC = () => {
                   onChange={(e) => setNivelCriticidad(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-sm rounded-xl focus:border-[#274C3D] outline-none"
                 >
-                  <option value="BAJA">BAJA - Informativa</option>
-                  <option value="MEDIA">MEDIA - Atención Logística</option>
-                  <option value="ALTA">ALTA - Saturación / Crítica</option>
+                  <option value="Baja">Baja - Informativa</option>
+                  <option value="Media">Media - Atención Logística</option>
+                  <option value="Alta">Alta - Saturación</option>
+                  <option value="Critica">Crítica - Acción Inmediata</option>
                 </select>
               </div>
 
@@ -575,7 +575,8 @@ const DashboardPage: React.FC = () => {
                 </label>
                 <select
                   value={idCentroAlerta}
-                  onChange={(e) => setIdCentroAlerta(Number(e.target.value))}
+                  onChange={(e) => setIdCentroAlerta(e.target.value)}
+                  required
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-sm rounded-xl focus:border-[#274C3D] outline-none"
                 >
                   {centros.map((c) => (

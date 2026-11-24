@@ -2,7 +2,13 @@ from collections import deque
 from typing import Dict, List, Any, Optional
 
 
-def compute_edge_capacity(cap_origen: float, cap_destino: float, distancia_km: float, tiempo_min: int, factor: float = 1.0) -> float:
+def compute_edge_capacity(
+    cap_origen: float,
+    cap_destino: float,
+    distancia_km: float,
+    tiempo_min: int,
+    factor: float = 1.0,
+) -> float:
     """
     Calcula la capacidad efectiva de transferencia c(u,v) en la arista dirigida (u -> v)
     en función de la capacidad operativa de los nodos y el factor logístico de tiempo/distancia.
@@ -16,40 +22,50 @@ def compute_edge_capacity(cap_origen: float, cap_destino: float, distancia_km: f
 def edmonds_karp_max_flow(
     nodes: List[Dict[str, Any]],
     edges: List[Dict[str, Any]],
-    source_id: Optional[int] = None,
-    sink_id: Optional[int] = None,
+    source_id: Optional[str] = None,
+    sink_id: Optional[str] = None,
     factor_capacidad: float = 1.0,
 ) -> Dict[str, Any]:
     """
-    Implementación del algoritmo de Edmonds-Karp (Ford-Fulkerson con BFS)
+    Implementación del algoritmo de Edmonds-Karp (Ford-Fulkerson con BFS) compatible con UUIDs
     para calcular el flujo máximo, flujo por arista, aristas saturadas (cuellos de botella)
     y el corte mínimo (S, T) sobre la red logística de EcoRAEE Cloud.
     """
     if not nodes:
         return {
-            "flujo_maximo": 0,
+            "nodo_origen": None,
+            "nodo_sumidero": None,
+            "factor_capacidad": factor_capacidad,
+            "flujo_maximo": 0.0,
             "flujo_por_arista": [],
-            "corte_minimo": {"conjunto_S": [], "conjunto_T": [], "aristas_criticas": [], "capacidad_corte": 0},
+            "corte_minimo": {
+                "conjunto_S": [],
+                "conjunto_T": [],
+                "aristas_criticas": [],
+                "capacidad_corte": 0.0,
+            },
             "rutas_aumentantes": [],
         }
 
-    node_map = {n["id_nodo"]: n for n in nodes}
-    sorted_node_ids = sorted(node_map.keys())
+    node_map: Dict[str, Dict[str, Any]] = {str(n["id_nodo"]): {**n, "id_nodo": str(n["id_nodo"])} for n in nodes}
+    ordered_node_ids = [str(n["id_nodo"]) for n in nodes]
 
-    if source_id is None or source_id not in node_map:
-        source_id = sorted_node_ids[0]
-    if sink_id is None or sink_id not in node_map:
-        sink_id = sorted_node_ids[-1]
+    src = str(source_id) if source_id is not None else None
+    snk = str(sink_id) if sink_id is not None else None
 
-    # Construir grafo residual
-    adj: Dict[int, List[int]] = {nid: [] for nid in sorted_node_ids}
+    if src is None or src not in node_map:
+        src = ordered_node_ids[0]
+    if snk is None or snk not in node_map:
+        snk = ordered_node_ids[-1]
+
+    adj: Dict[str, List[str]] = {nid: [] for nid in ordered_node_ids}
     capacity: Dict[tuple, float] = {}
     flow: Dict[tuple, float] = {}
     edge_meta: Dict[tuple, Dict[str, Any]] = {}
 
     for e in edges:
-        u = e["id_nodo_origen"]
-        v = e["id_nodo_destino"]
+        u = str(e["id_nodo_origen"])
+        v = str(e["id_nodo_destino"])
         if u not in node_map or v not in node_map:
             continue
 
@@ -70,11 +86,11 @@ def edmonds_karp_max_flow(
         flow[(u, v)] = 0.0
         flow.setdefault((v, u), 0.0)
         edge_meta[(u, v)] = {
-            "id_arista": e["id_arista"],
+            "id_arista": str(e["id_arista"]),
             "id_nodo_origen": u,
-            "nombre_origen": node_map[u]["tipo_nodo"],
+            "nombre_origen": node_map[u].get("nombre_centro") or node_map[u]["tipo_nodo"],
             "id_nodo_destino": v,
-            "nombre_destino": node_map[v]["tipo_nodo"],
+            "nombre_destino": node_map[v].get("nombre_centro") or node_map[v]["tipo_nodo"],
             "distancia_km": dist,
             "tiempo_estimado_min": t_min,
             "capacidad": round(c_uv, 2),
@@ -83,54 +99,56 @@ def edmonds_karp_max_flow(
     max_flow = 0.0
     augmenting_paths = []
 
-    # Búsqueda BFS de caminos aumentantes (Edmonds-Karp)
-    while True:
-        parent: Dict[int, Optional[int]] = {nid: None for nid in sorted_node_ids}
-        parent[source_id] = source_id
-        queue = deque([source_id])
+    if src != snk:
+        while True:
+            parent: Dict[str, Optional[str]] = {nid: None for nid in ordered_node_ids}
+            parent[src] = src
+            queue = deque([src])
 
-        while queue and parent[sink_id] is None:
-            u = queue.popleft()
-            for v in adj[u]:
-                residual = capacity.get((u, v), 0.0) - flow.get((u, v), 0.0)
-                if parent[v] is None and residual > 1e-6:
-                    parent[v] = u
-                    queue.append(v)
+            while queue and parent[snk] is None:
+                u = queue.popleft()
+                for v in adj[u]:
+                    residual = capacity.get((u, v), 0.0) - flow.get((u, v), 0.0)
+                    if parent[v] is None and residual > 1e-6:
+                        parent[v] = u
+                        queue.append(v)
 
-        if parent[sink_id] is None:
-            break
+            if parent[snk] is None:
+                break
 
-        # Reconstruir camino y encontrar cuello de botella del camino
-        path_nodes = []
-        curr = sink_id
-        path_flow = float("inf")
-        while curr != source_id:
-            prev = parent[curr]
-            residual = capacity[(prev, curr)] - flow[(prev, curr)]
-            path_flow = min(path_flow, residual)
-            path_nodes.append(curr)
-            curr = prev
-        path_nodes.append(source_id)
-        path_nodes.reverse()
+            path_nodes: List[str] = []
+            curr = snk
+            path_flow = float("inf")
+            while curr != src:
+                prev = parent[curr]
+                assert prev is not None
+                residual = capacity[(prev, curr)] - flow[(prev, curr)]
+                path_flow = min(path_flow, residual)
+                path_nodes.append(curr)
+                curr = prev
+            path_nodes.append(src)
+            path_nodes.reverse()
 
-        # Actualizar flujos residuales
-        curr = sink_id
-        while curr != source_id:
-            prev = parent[curr]
-            flow[(prev, curr)] += path_flow
-            flow[(curr, prev)] -= path_flow
-            curr = prev
+            curr = snk
+            while curr != src:
+                prev = parent[curr]
+                assert prev is not None
+                flow[(prev, curr)] += path_flow
+                flow[(curr, prev)] -= path_flow
+                curr = prev
 
-        max_flow = round(max_flow + path_flow, 2)
-        augmenting_paths.append({
-            "camino_nodos": path_nodes,
-            "camino_nombres": [node_map[nid]["tipo_nodo"] for nid in path_nodes],
-            "flujo_aportado": round(path_flow, 2),
-        })
+            max_flow = round(max_flow + path_flow, 2)
+            augmenting_paths.append({
+                "camino_nodos": path_nodes,
+                "camino_nombres": [
+                    node_map[nid].get("nombre_centro") or node_map[nid]["tipo_nodo"]
+                    for nid in path_nodes
+                ],
+                "flujo_aportado": round(path_flow, 2),
+            })
 
-    # Determinar corte mínimo (S, T): nodos alcanzables desde source en grafo residual
-    visited = set([source_id])
-    q = deque([source_id])
+    visited = {src}
+    q = deque([src])
     while q:
         u = q.popleft()
         for v in adj[u]:
@@ -139,8 +157,8 @@ def edmonds_karp_max_flow(
                 visited.add(v)
                 q.append(v)
 
-    set_S = sorted(list(visited))
-    set_T = sorted([nid for nid in sorted_node_ids if nid not in visited])
+    set_S = [nid for nid in ordered_node_ids if nid in visited]
+    set_T = [nid for nid in ordered_node_ids if nid not in visited]
 
     flujo_por_arista = []
     aristas_criticas = []
@@ -167,14 +185,20 @@ def edmonds_karp_max_flow(
             capacidad_corte = round(capacidad_corte + c_uv, 2)
 
     return {
-        "nodo_origen": node_map[source_id],
-        "nodo_sumidero": node_map[sink_id],
+        "nodo_origen": node_map[src],
+        "nodo_sumidero": node_map[snk],
         "factor_capacidad": factor_capacidad,
         "flujo_maximo": round(max_flow, 2),
         "flujo_por_arista": flujo_por_arista,
         "corte_minimo": {
-            "conjunto_S": [{"id_nodo": nid, "tipo_nodo": node_map[nid]["tipo_nodo"]} for nid in set_S],
-            "conjunto_T": [{"id_nodo": nid, "tipo_nodo": node_map[nid]["tipo_nodo"]} for nid in set_T],
+            "conjunto_S": [
+                {"id_nodo": nid, "tipo_nodo": node_map[nid]["tipo_nodo"], "nombre_centro": node_map[nid].get("nombre_centro")}
+                for nid in set_S
+            ],
+            "conjunto_T": [
+                {"id_nodo": nid, "tipo_nodo": node_map[nid]["tipo_nodo"], "nombre_centro": node_map[nid].get("nombre_centro")}
+                for nid in set_T
+            ],
             "aristas_criticas": aristas_criticas,
             "capacidad_corte": capacidad_corte,
         },
@@ -190,31 +214,31 @@ def get_formalized_business_rules() -> List[Dict[str, Any]]:
     return [
         {
             "codigo": "RN-01",
-            "titulo": "Identificación única y registro en historial inicial",
+            "titulo": "Identificación única (UUID + Serie) y catálogo controlado de Objetos/Categorías",
             "proposiciones": {
-                "p": "El dispositivo posee un número de serie único (num_serie)",
-                "q": "El dispositivo está vinculado a un lote válido (id_lote)",
+                "p": "El dispositivo posee UUID único y número de serie único (num_serie)",
+                "q": "El objeto y categoría existen previamente en las tablas OBJETO y CATEGORIA de la BD",
                 "r": "Se genera el estado inicial secuencial (id_secuencia = 1) en HISTORIAL_ESTADOS",
             },
             "formula": "(p ∧ q) → r",
-            "implementacion_sql_api": "UQ_DISPOSITIVO_SERIE + FK_DISPOSITIVO_LOTE + Inserción transaccional de secuencia 1",
+            "implementacion_sql_api": "UNIQUEIDENTIFIER PK + FK_DISPOSITIVO_OBJETO + FK_DISPOSITIVO_CATEGORIA + DTO estrictos",
         },
         {
             "codigo": "RN-02",
             "titulo": "Autorización de evaluación técnica por rol",
             "proposiciones": {
                 "p": "El usuario intenta registrar o modificar una EVALUACION_TECNICA",
-                "q": "El usuario tiene rol 'Tecnico Clasificador' o 'Administrador del Sistema'",
+                "q": "El usuario tiene rol 'Técnico Evaluador RAEE', 'Tecnico Clasificador' o 'Administrador del Sistema'",
             },
             "formula": "p → q",
-            "implementacion_sql_api": "Validación de rol en endpoint POST/PUT /evaluaciones y FK_EVAL_USUARIO",
+            "implementacion_sql_api": "Validación de rol en endpoint POST/PUT /dispositivos/evaluaciones y FK_EVAL_USUARIO",
         },
         {
             "codigo": "RN-03",
             "titulo": "Validación de transferencia entre centros distintos",
             "proposiciones": {
-                "p": "Existe centro de origen válido (id_centro_origen)",
-                "q": "Existe centro de destino válido (id_centro_destino)",
+                "p": "Existe centro de origen válido (id_centro_origen UUID)",
+                "q": "Existe centro de destino válido (id_centro_destino UUID)",
                 "r": "El centro de origen es distinto del centro de destino (origen ≠ destino)",
             },
             "formula": "TransferenciaValida ↔ (p ∧ q ∧ r)",
@@ -228,18 +252,17 @@ def get_formalized_business_rules() -> List[Dict[str, Any]]:
                 "q": "El destino de tratamiento es donación o beneficiario educativo",
             },
             "formula": "p → ¬q",
-            "implementacion_sql_api": "Validación en POST /tratamientos impidiendo asignar a beneficiario si es Disposición Final",
+            "implementacion_sql_api": "Validación en POST /dispositivos/tratamientos impidiendo asignar a beneficiario",
         },
         {
             "codigo": "RN-08",
-            "titulo": "Cierre de trazabilidad con tratamiento y evidencia válida",
+            "titulo": "Cierre de trazabilidad con tratamiento y evidencia en AWS S3",
             "proposiciones": {
                 "p": "Existe registro de TRATAMIENTO con destino final y fecha de cierre",
-                "q": "Existe EVIDENCIA en formato permitido (PDF, JPG, PNG, DOCX)",
-                "r": "El dispositivo pasa al estado 6 ('Cerrado / Trazabilidad Completa')",
+                "q": "Existe EVIDENCIA en formato permitido (PDF, JPG, PNG, DOCX) almacenada en S3/Local",
+                "r": "El dispositivo pasa al estado 'Cerrado / Trazabilidad Completa'",
             },
             "formula": "(p ∧ q) ↔ r",
-            "implementacion_sql_api": "CK_EVIDENCIA_TIPO + actualización atómica de HISTORIAL_ESTADOS a estado 6",
+            "implementacion_sql_api": "AWS S3 boto3 + actualización atómica de HISTORIAL_ESTADOS",
         },
     ]
-

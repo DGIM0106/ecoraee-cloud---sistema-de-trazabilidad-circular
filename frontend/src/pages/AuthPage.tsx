@@ -2,27 +2,27 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Recycle, ShieldCheck, UserPlus, LogIn, ArrowRight } from "lucide-react";
 import apiClient from "../api/client";
-import { useAuth, DEMO_USERS } from "../context/AuthContext";
-import { User, Rol, Organizacion } from "../types";
+import { useAuth } from "../context/AuthContext";
+import { UserDTO, RolDTO, OrganizacionDTO, UUID } from "../types";
 import Button from "../components/atoms/Button";
 import Input from "../components/atoms/Input";
 import FormField from "../components/molecules/FormField";
 import Avatar from "../components/atoms/Avatar";
 
 const AuthPage: React.FC = () => {
-  const { user, login } = useAuth();
+  const { user, login, refreshUsers } = useAuth();
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [correoLogin, setCorreoLogin] = useState(user?.correo || "anthony.romo@ecoraee.ec");
   const [nombreReg, setNombreReg] = useState("");
   const [correoReg, setCorreoReg] = useState("");
-  const [idOrgReg, setIdOrgReg] = useState<number>(1);
-  const [idRolReg, setIdRolReg] = useState<number>(2);
+  const [idOrgReg, setIdOrgReg] = useState<UUID>("");
+  const [idRolReg, setIdRolReg] = useState<UUID>("");
 
-  const [usersList, setUsersList] = useState<User[]>(DEMO_USERS);
-  const [roles, setRoles] = useState<Rol[]>([]);
-  const [organizaciones, setOrganizaciones] = useState<Organizacion[]>([]);
+  const [usersList, setUsersList] = useState<UserDTO[]>([]);
+  const [roles, setRoles] = useState<RolDTO[]>([]);
+  const [organizaciones, setOrganizaciones] = useState<OrganizacionDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,56 +30,66 @@ const AuthPage: React.FC = () => {
     const loadData = async () => {
       try {
         const [uRes, catRes] = await Promise.all([
-          apiClient.get<User[]>("/auth/users"),
+          apiClient.get<UserDTO[]>("/auth/users"),
           apiClient.get("/catalogos/resumen"),
         ]);
-        if (uRes.data && uRes.data.length > 0) setUsersList(uRes.data);
-        setRoles(catRes.data.roles || []);
-        setOrganizaciones(catRes.data.organizaciones || []);
+        setUsersList(uRes.data || []);
+        const loadedRoles: RolDTO[] = catRes.data.roles || [];
+        const loadedOrgs: OrganizacionDTO[] = catRes.data.organizaciones || [];
+        setRoles(loadedRoles);
+        setOrganizaciones(loadedOrgs);
+        if (loadedOrgs.length > 0) setIdOrgReg(loadedOrgs[0].id_organizacion);
+        if (loadedRoles.length > 0) setIdRolReg(loadedRoles[0].id_rol);
       } catch (err) {
         console.error("Error cargando usuarios:", err);
+        setError("No se pudo conectar con la API para cargar usuarios.");
       }
     };
     loadData();
   }, []);
 
-  const handleSelectDemoUser = (u: User) => {
+  const handleSelectUser = (u: UserDTO) => {
     login(u);
     navigate("/");
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const found = usersList.find(
-      (u) => u.correo.toLowerCase() === correoLogin.trim().toLowerCase()
-    );
-    if (found) {
-      login(found);
+    try {
+      setLoading(true);
+      const res = await apiClient.post<{ message: string; user: UserDTO }>("/auth/login", {
+        correo: correoLogin.trim(),
+      });
+      login(res.data.user);
       navigate("/");
-    } else {
+    } catch (err: any) {
       setError(
-        "Correo no encontrado en la base de datos de EcoRAEE. Selecciona un actor de la lista."
+        err.response?.data?.detail ||
+          "Correo no encontrado en la base de datos de EcoRAEE."
       );
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!nombreReg.trim() || !correoReg.trim()) {
+    if (!nombreReg.trim() || !correoReg.trim() || !idOrgReg || !idRolReg) {
       setError("Por favor completa todos los campos del registro.");
       return;
     }
     try {
       setLoading(true);
-      const res = await apiClient.post<User>("/auth/users", {
+      const res = await apiClient.post<UserDTO>("/auth/register", {
         nombre: nombreReg.trim(),
         correo: correoReg.trim(),
         id_organizacion: idOrgReg,
         id_rol: idRolReg,
       });
       login(res.data);
+      await refreshUsers();
       navigate("/");
     } catch (err: any) {
       setError(err.response?.data?.detail || "Error al crear el usuario.");
@@ -99,33 +109,32 @@ const AuthPage: React.FC = () => {
             EcoRAEE <span className="text-[#274C3D]">Cloud</span>
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            Plataforma Universitaria de Trazabilidad Circular RAEE · Parte II Local
+            Plataforma de Trazabilidad Circular RAEE · DTOs, UUID & AWS Cloud
           </p>
         </div>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-4xl space-y-8">
-        {/* Selector Rápido de los 5 Roles / Personas */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#274C3D] bg-[#EBF2EE] px-2.5 py-0.5 rounded-lg border border-[#C5D8CF]">
-                Demostración & Evaluación de Roles
+                Usuarios Registrados en Base de Datos
               </span>
               <h2 className="text-base font-bold text-[#1F2925] mt-1">
-                Selecciona un Actor de Prueba para Iniciar Sesión Directa
+                Selecciona un Actor para Iniciar Sesión Directa
               </h2>
             </div>
             <ShieldCheck className="w-5 h-5 text-[#274C3D]" />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {usersList.slice(0, 5).map((u) => {
+            {usersList.slice(0, 6).map((u) => {
               const isSelected = user?.id_usuario === u.id_usuario;
               return (
                 <button
                   key={u.id_usuario}
-                  onClick={() => handleSelectDemoUser(u)}
+                  onClick={() => handleSelectUser(u)}
                   className={`p-4 rounded-2xl text-left border transition-all cursor-pointer space-y-2 ${
                     isSelected
                       ? "bg-[#EBF2EE] border-[#274C3D] ring-2 ring-[#274C3D]/20 shadow-xs"
@@ -155,7 +164,6 @@ const AuthPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Formulario de Login / Registro Manual */}
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#D6E3DC] shadow-xs max-w-lg mx-auto space-y-6">
           <div className="flex items-center justify-center gap-2 border-b border-[#EBF2EE] pb-4">
             <button
@@ -200,7 +208,7 @@ const AuthPage: React.FC = () => {
                 />
               </FormField>
 
-              <Button type="submit" variant="primary" size="md" className="w-full">
+              <Button type="submit" variant="primary" size="md" isLoading={loading} className="w-full">
                 Iniciar Sesión
               </Button>
             </form>
@@ -228,7 +236,8 @@ const AuthPage: React.FC = () => {
               <FormField label="Organización Jurídica">
                 <select
                   value={idOrgReg}
-                  onChange={(e) => setIdOrgReg(Number(e.target.value))}
+                  onChange={(e) => setIdOrgReg(e.target.value)}
+                  required
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
                 >
                   {organizaciones.map((o) => (
@@ -242,7 +251,8 @@ const AuthPage: React.FC = () => {
               <FormField label="Rol Funcional">
                 <select
                   value={idRolReg}
-                  onChange={(e) => setIdRolReg(Number(e.target.value))}
+                  onChange={(e) => setIdRolReg(e.target.value)}
+                  required
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
                 >
                   {roles.map((r) => (

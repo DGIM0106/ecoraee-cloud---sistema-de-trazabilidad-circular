@@ -5,50 +5,67 @@ import {
   Plus,
   GitBranch,
   Flame,
-  CheckCircle2,
   Binary,
-  Layers,
   ArrowRight,
+  ShieldAlert,
 } from "lucide-react";
 import apiClient from "../api/client";
+import { CentroDTO, GrafoResumenDTO, MaxFlowResponseDTO, UUID } from "../types";
 import Button from "../components/atoms/Button";
 import Input from "../components/atoms/Input";
 import FormField from "../components/molecules/FormField";
 
 const RedFlujoPage: React.FC = () => {
-  const [grafoData, setGrafoData] = useState<any>(null);
-  const [simulacionActiva, setSimulacionActiva] = useState<any>(null);
+  const [grafoData, setGrafoData] = useState<GrafoResumenDTO | null>(null);
+  const [centros, setCentros] = useState<CentroDTO[]>([]);
+  const [simulacionActiva, setSimulacionActiva] = useState<MaxFlowResponseDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [simulando, setSimulando] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Parámetros del simulador Edmonds-Karp
-  const [nodoOrigen, setNodoOrigen] = useState<number>(1);
-  const [nodoSumidero, setNodoSumidero] = useState<number>(4);
+  const [nodoOrigen, setNodoOrigen] = useState<UUID>("");
+  const [nodoSumidero, setNodoSumidero] = useState<UUID>("");
   const [factorCap, setFactorCap] = useState<number>(1.0);
 
-  // Modales
   const [modalNodo, setModalNodo] = useState(false);
   const [modalArista, setModalArista] = useState(false);
 
-  // Nuevo Nodo
-  const [idCentroNodo, setIdCentroNodo] = useState<number>(1);
+  const [idCentroNodo, setIdCentroNodo] = useState<UUID>("");
   const [tipoNodo, setTipoNodo] = useState("ORIGEN_ACOPIO");
   const [capNodo, setCapNodo] = useState<number>(45);
 
-  // Nueva Arista
-  const [aristaOrig, setAristaOrig] = useState<number>(1);
-  const [aristaDest, setAristaDest] = useState<number>(3);
+  const [aristaOrig, setAristaOrig] = useState<UUID>("");
+  const [aristaDest, setAristaDest] = useState<UUID>("");
   const [distKm, setDistKm] = useState<number>(32.5);
   const [tiempoMin, setTiempoMin] = useState<number>(50);
-  const [capFlujoTon, setCapFlujoTon] = useState<number>(30.0);
 
   const cargarRed = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await apiClient.get("/red/grafo");
-      setGrafoData(res.data);
+      setErrorMsg(null);
+      const [grafoRes, catRes] = await Promise.all([
+        apiClient.get<GrafoResumenDTO>("/red/grafo"),
+        apiClient.get("/catalogos/resumen"),
+      ]);
+      setGrafoData(grafoRes.data);
+      setSimulacionActiva(grafoRes.data.analisis_flujo_actual);
+      const loadedCentros: CentroDTO[] = catRes.data.centros || [];
+      setCentros(loadedCentros);
+
+      if (grafoRes.data.nodos.length > 0) {
+        const first = grafoRes.data.nodos[0].id_nodo;
+        const last = grafoRes.data.nodos[grafoRes.data.nodos.length - 1].id_nodo;
+        setNodoOrigen((prev) => prev || first);
+        setNodoSumidero((prev) => prev || last);
+        setAristaOrig((prev) => prev || first);
+        setAristaDest((prev) => prev || last);
+      }
+      if (loadedCentros.length > 0) {
+        setIdCentroNodo((prev) => prev || loadedCentros[0].id_centro);
+      }
     } catch (err) {
       console.error("Error cargando grafo de red:", err);
+      setErrorMsg("No se pudo cargar la red logística desde la base de datos.");
     } finally {
       setLoading(false);
     }
@@ -61,9 +78,9 @@ const RedFlujoPage: React.FC = () => {
   const ejecutarSimulacion = async () => {
     try {
       setSimulando(true);
-      const res = await apiClient.post("/red/simulacion-max-flow", {
-        nodo_origen: nodoOrigen,
-        nodo_sumidero: nodoSumidero,
+      const res = await apiClient.post<MaxFlowResponseDTO>("/red/flujo-maximo", {
+        id_nodo_origen: nodoOrigen || null,
+        id_nodo_sumidero: nodoSumidero || null,
         factor_capacidad: factorCap,
       });
       setSimulacionActiva(res.data);
@@ -78,9 +95,9 @@ const RedFlujoPage: React.FC = () => {
     e.preventDefault();
     try {
       await apiClient.post("/red/nodos", {
-        id_centro: idCentroNodo,
+        id_centro: idCentroNodo || null,
         tipo_nodo: tipoNodo,
-        capacidad_procesamiento_ton: capNodo,
+        capacidad_nodo: capNodo,
       });
       setModalNodo(false);
       await cargarRed();
@@ -100,7 +117,6 @@ const RedFlujoPage: React.FC = () => {
         id_nodo_origen: aristaOrig,
         id_nodo_destino: aristaDest,
         distancia_km: distKm,
-        capacidad_flujo_ton: capFlujoTon,
         tiempo_estimado_min: tiempoMin,
       });
       setModalArista(false);
@@ -110,14 +126,24 @@ const RedFlujoPage: React.FC = () => {
     }
   };
 
+  const cuellosBotella =
+    simulacionActiva?.flujo_por_arista?.filter((a) => a.saturada || a.en_corte_minimo) || [];
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#D6E3DC] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-[#EBF2EE] text-[#274C3D] text-xs font-bold uppercase tracking-wider mb-2 border border-[#C5D8CF]">
             <Binary className="w-3.5 h-3.5 text-[#274C3D]" />
-            Matemática Discreta · Algoritmo Edmonds-Karp & Redes Dirigidas
+            Matemática Discreta · Algoritmo Edmonds-Karp & Redes UUID
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-[#1F2925] tracking-tight">
             Modelo Matemático de Flujo Máximo Logístico
@@ -149,7 +175,7 @@ const RedFlujoPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Panel del Simulador Edmonds-Karp */}
+      {/* Simulador */}
       <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EBF2EE] pb-4">
           <div>
@@ -177,10 +203,10 @@ const RedFlujoPage: React.FC = () => {
           <FormField label="Nodo Origen (Fuente)">
             <select
               value={nodoOrigen}
-              onChange={(e) => setNodoOrigen(Number(e.target.value))}
+              onChange={(e) => setNodoOrigen(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
             >
-              {grafoData?.nodos?.map((n: any) => (
+              {grafoData?.nodos?.map((n) => (
                 <option key={n.id_nodo} value={n.id_nodo}>
                   {n.nombre_centro} ({n.codigo_centro})
                 </option>
@@ -191,10 +217,10 @@ const RedFlujoPage: React.FC = () => {
           <FormField label="Nodo Destino (Sumidero)">
             <select
               value={nodoSumidero}
-              onChange={(e) => setNodoSumidero(Number(e.target.value))}
+              onChange={(e) => setNodoSumidero(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
             >
-              {grafoData?.nodos?.map((n: any) => (
+              {grafoData?.nodos?.map((n) => (
                 <option key={n.id_nodo} value={n.id_nodo}>
                   {n.nombre_centro} ({n.codigo_centro})
                 </option>
@@ -209,13 +235,12 @@ const RedFlujoPage: React.FC = () => {
               className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
             >
               <option value={1.0}>1.0x - Capacidad Nominal Regular</option>
-              <option value={1.25}>1.25x - Campaña Pico de Reciclaje (+25%)</option>
-              <option value={0.75}>0.75x - Mantenimiento Vial / Flota Reducida (-25%)</option>
+              <option value={1.35}>1.35x - Campaña Pico de Reciclaje (+35%)</option>
+              <option value={0.7}>0.70x - Mantenimiento Vial / Flota Reducida (-30%)</option>
             </select>
           </FormField>
         </div>
 
-        {/* Resultados de la Simulación */}
         {simulacionActiva && (
           <div className="p-6 rounded-3xl bg-[#F2F7F4] border border-[#C5D8CF] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -224,35 +249,37 @@ const RedFlujoPage: React.FC = () => {
                   Resultado Teorema Max-Flow / Min-Cut
                 </span>
                 <div className="text-3xl font-black text-[#274C3D] mt-1">
-                  {simulacionActiva.flujo_maximo} <span className="text-base font-bold text-slate-600">Toneladas / Semana</span>
+                  {simulacionActiva.flujo_maximo}{" "}
+                  <span className="text-base font-bold text-slate-600">Toneladas / Periodo</span>
                 </div>
               </div>
               <div className="text-xs text-slate-600 bg-white p-3 rounded-2xl border border-[#D6E3DC] max-w-xs">
-                <span className="font-bold text-[#274C3D] block mb-1">Corte Mínimo (Min-Cut):</span>
+                <span className="font-bold text-[#274C3D] block mb-1">
+                  Corte Mínimo: {simulacionActiva.corte_minimo.capacidad_corte} Ton
+                </span>
                 <span>Capacidad máxima transferible antes de saturación de aristas.</span>
               </div>
             </div>
 
-            {/* Cuellos de Botella */}
-            {simulacionActiva.cuellos_botella && (
+            {cuellosBotella.length > 0 && (
               <div className="space-y-2">
                 <span className="text-xs font-bold text-[#274C3D] flex items-center gap-1.5 uppercase tracking-wider">
                   <Flame className="w-4 h-4 text-amber-600" />
-                  Rutas Críticas Saturadas (Cuellos de Botella)
+                  Rutas Críticas Saturadas / Corte Mínimo
                 </span>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {simulacionActiva.cuellos_botella.map((cb: any, i: number) => (
+                  {cuellosBotella.map((cb) => (
                     <div
-                      key={i}
-                      className="p-3 rounded-2xl bg-white border border-[#D6E3DC] text-xs flex items-center justify-between"
+                      key={cb.id_arista}
+                      className="p-3 rounded-2xl bg-white border border-[#D6E3DC] text-xs flex items-center justify-between gap-2"
                     >
-                      <div className="font-bold text-[#1F2925] flex items-center gap-1.5">
-                        <span>{cb.origen}</span>
-                        <ArrowRight className="w-3.5 h-3.5 text-[#274C3D]" />
-                        <span>{cb.destino}</span>
+                      <div className="font-bold text-[#1F2925] flex items-center gap-1.5 truncate">
+                        <span className="truncate">{cb.nombre_origen}</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-[#274C3D] shrink-0" />
+                        <span className="truncate">{cb.nombre_destino}</span>
                       </div>
-                      <span className="px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-800 font-bold text-[10px] border border-rose-200">
-                        Saturada: {cb.flujo} / {cb.capacidad} Ton
+                      <span className="px-2.5 py-0.5 rounded-lg bg-rose-50 text-rose-800 font-bold text-[10px] border border-rose-200 shrink-0">
+                        {cb.flujo} / {cb.capacidad} Ton
                       </span>
                     </div>
                   ))}
@@ -263,166 +290,111 @@ const RedFlujoPage: React.FC = () => {
         )}
       </div>
 
-      {/* Representación Visual del Grafo Dirigido (SVG) */}
-      <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
+      {/* Tablas de Nodos y Aristas en BD */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Network className="w-5 h-5 text-[#274C3D]" />
+              <h2 className="text-base font-bold text-[#1F2925]">Nodos de Red (NODO)</h2>
+            </div>
+            <span className="text-xs text-slate-500">{grafoData?.nodos.length || 0} Nodos</span>
+          </div>
+          {loading ? (
+            <p className="text-xs text-slate-500">Cargando nodos...</p>
+          ) : (
+            <div className="space-y-2">
+              {grafoData?.nodos.map((n) => (
+                <div
+                  key={n.id_nodo}
+                  className="p-3 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] text-xs flex items-center justify-between"
+                >
+                  <div>
+                    <p className="font-bold text-[#1F2925]">{n.nombre_centro}</p>
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      {n.tipo_nodo} · {n.id_nodo.slice(0, 8)}...
+                    </p>
+                  </div>
+                  <span className="font-bold text-[#274C3D] bg-[#EBF2EE] px-2.5 py-1 rounded-xl">
+                    {n.capacidad_nodo} Ton
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-5 h-5 text-[#274C3D]" />
+              <h2 className="text-base font-bold text-[#1F2925]">Rutas Dirigidas (ARISTA)</h2>
+            </div>
+            <span className="text-xs text-slate-500">{grafoData?.aristas.length || 0} Rutas</span>
+          </div>
+          <div className="space-y-2">
+            {grafoData?.aristas.map((a) => (
+              <div
+                key={a.id_arista}
+                className="p-3 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] text-xs flex items-center justify-between gap-2"
+              >
+                <div className="font-semibold text-[#1F2925] truncate">
+                  {a.nombre_origen} <ArrowRight className="w-3 h-3 inline text-[#274C3D] mx-1" />{" "}
+                  {a.nombre_destino}
+                </div>
+                <span className="font-mono text-[11px] text-[#274C3D] shrink-0">
+                  {a.distancia_km} km · {a.tiempo_estimado_min} min
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Reglas Formalizadas */}
+      {grafoData?.reglas_discretas && grafoData.reglas_discretas.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
           <div className="flex items-center gap-2">
-            <Network className="w-5 h-5 text-[#274C3D]" />
+            <GitBranch className="w-5 h-5 text-[#274C3D]" />
             <h2 className="text-base font-bold text-[#1F2925]">
-              Topología de la Red de Centros (Grafo Dirigido G=(V,E))
+              Reglas de Negocio Formalizadas (Matemática Discreta)
             </h2>
           </div>
-          <span className="text-xs text-slate-500">
-            {grafoData?.nodos?.length || 5} Nodos · {grafoData?.aristas?.length || 5} Aristas Dirigidas
-          </span>
-        </div>
 
-        {/* Lienzo SVG del Grafo */}
-        <div className="w-full bg-[#F8FAF9] rounded-3xl p-6 border border-[#D6E3DC] overflow-x-auto">
-          <svg className="w-full min-w-[700px] h-[320px]" viewBox="0 0 800 320">
-            {/* Definición de Marcador Flecha */}
-            <defs>
-              <marker
-                id="arrow"
-                viewBox="0 0 10 10"
-                refX="22"
-                refY="5"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto-start-reverse"
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            {grafoData.reglas_discretas.map((r) => (
+              <div
+                key={r.codigo}
+                className="p-4 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] space-y-1.5"
               >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="#274C3D" />
-              </marker>
-            </defs>
-
-            {/* Aristas con líneas y flechas */}
-            <line x1="140" y1="100" x2="400" y2="160" stroke="#274C3D" strokeWidth="2.5" markerEnd="url(#arrow)" />
-            <line x1="140" y1="220" x2="400" y2="160" stroke="#274C3D" strokeWidth="2.5" markerEnd="url(#arrow)" />
-            <line x1="400" y1="160" x2="660" y2="100" stroke="#274C3D" strokeWidth="2.5" markerEnd="url(#arrow)" />
-            <line x1="400" y1="160" x2="660" y2="220" stroke="#274C3D" strokeWidth="2.5" markerEnd="url(#arrow)" />
-            <line x1="140" y1="100" x2="660" y2="100" stroke="#274C3D" strokeWidth="1.5" strokeDasharray="5,5" markerEnd="url(#arrow)" />
-
-            {/* Etiquetas de capacidad en las aristas */}
-            <text x="260" y="120" fontSize="11" fill="#527063" fontWeight="bold">35 Ton (18.5 km)</text>
-            <text x="260" y="205" fontSize="11" fill="#527063" fontWeight="bold">40 Ton (28 km)</text>
-            <text x="520" y="120" fontSize="11" fill="#527063" fontWeight="bold">25 Ton (22 km)</text>
-            <text x="520" y="205" fontSize="11" fill="#527063" fontWeight="bold">45 Ton (32.5 km)</text>
-
-            {/* Nodo 1: Acopio Norte */}
-            <g transform="translate(140, 100)">
-              <circle r="36" fill="#FFFFFF" stroke="#274C3D" strokeWidth="3" />
-              <text textAnchor="middle" y="-4" fontSize="11" fontWeight="bold" fill="#1F2925">C-NOR-01</text>
-              <text textAnchor="middle" y="12" fontSize="9" fill="#527063">Acopio Norte</text>
-            </g>
-
-            {/* Nodo 2: Acopio Sur */}
-            <g transform="translate(140, 220)">
-              <circle r="36" fill="#FFFFFF" stroke="#274C3D" strokeWidth="3" />
-              <text textAnchor="middle" y="-4" fontSize="11" fontWeight="bold" fill="#1F2925">C-SUR-02</text>
-              <text textAnchor="middle" y="12" fontSize="9" fill="#527063">Acopio Sur</text>
-            </g>
-
-            {/* Nodo 3: Clasificación Calderón */}
-            <g transform="translate(400, 160)">
-              <circle r="42" fill="#EBF2EE" stroke="#274C3D" strokeWidth="3.5" />
-              <text textAnchor="middle" y="-4" fontSize="12" fontWeight="black" fill="#274C3D">C-CLA-03</text>
-              <text textAnchor="middle" y="12" fontSize="9" fontWeight="bold" fill="#1F2925">Clasificación</text>
-            </g>
-
-            {/* Nodo 4: Taller Reacondicionamiento */}
-            <g transform="translate(660, 100)">
-              <circle r="36" fill="#FFFFFF" stroke="#274C3D" strokeWidth="3" />
-              <text textAnchor="middle" y="-4" fontSize="11" fontWeight="bold" fill="#1F2925">T-REA-04</text>
-              <text textAnchor="middle" y="12" fontSize="9" fill="#527063">Recondicion.</text>
-            </g>
-
-            {/* Nodo 5: Complejo Reciclaje Pifo */}
-            <g transform="translate(660, 220)">
-              <circle r="36" fill="#FFFFFF" stroke="#274C3D" strokeWidth="3" />
-              <text textAnchor="middle" y="-4" fontSize="11" fontWeight="bold" fill="#1F2925">P-REC-05</text>
-              <text textAnchor="middle" y="12" fontSize="9" fill="#527063">Reciclaje Pifo</text>
-            </g>
-          </svg>
-        </div>
-      </div>
-
-      {/* Reglas de Negocio Formalizadas de Matemática Discreta */}
-      <div className="bg-white rounded-3xl p-6 border border-[#D6E3DC] shadow-xs space-y-4">
-        <div className="flex items-center gap-2">
-          <GitBranch className="w-5 h-5 text-[#274C3D]" />
-          <h2 className="text-base font-bold text-[#1F2925]">
-            Formalización de Reglas de Matemática Discreta (RF-MD-01..05)
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          <div className="p-4 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] space-y-1.5">
-            <span className="font-bold text-[#274C3D] block uppercase">
-              RF-MD-01: Conservación de Flujo en Red
-            </span>
-            <p className="text-slate-600">
-              Para todo nodo intermedio de clasificación (excluyendo fuente y sumidero), la sumatoria del flujo entrante es estrictamente igual a la sumatoria del flujo saliente:
-            </p>
-            <div className="font-mono bg-white p-2 rounded-xl border border-[#D6E3DC] text-[11px] text-[#274C3D] font-bold">
-              Σ f(u, v) = Σ f(v, w)
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] space-y-1.5">
-            <span className="font-bold text-[#274C3D] block uppercase">
-              RF-MD-02: Restricción de Capacidad Logística
-            </span>
-            <p className="text-slate-600">
-              El flujo asignado a cada ruta de transporte no excede la capacidad nominal máxima permitida por la flota disponible:
-            </p>
-            <div className="font-mono bg-white p-2 rounded-xl border border-[#D6E3DC] text-[11px] text-[#274C3D] font-bold">
-              0 ≤ f(u, v) ≤ c(u, v) , ∀(u, v) ∈ E
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] space-y-1.5">
-            <span className="font-bold text-[#274C3D] block uppercase">
-              RF-MD-03: Teorema de Flujo Máximo / Corte Mínimo
-            </span>
-            <p className="text-slate-600">
-              El valor del flujo máximo alcanzable desde los centros de acopio fuente hacia las plantas finales coincide con la capacidad del corte mínimo (bottleneck limitante).
-            </p>
-            <div className="font-mono bg-white p-2 rounded-xl border border-[#D6E3DC] text-[11px] text-[#274C3D] font-bold">
-              Max Flow |f| = Min Cut Capacity C(S, T)
-            </div>
-          </div>
-
-          <div className="p-4 rounded-2xl bg-[#F8FAF9] border border-[#D6E3DC] space-y-1.5">
-            <span className="font-bold text-[#274C3D] block uppercase">
-              RF-MD-04: Aciclicidad Estricta en Custodia
-            </span>
-            <p className="text-slate-600">
-              Un lote procesado o cerrado no puede regresar a un centro de acopio primario; el grafo logístico preserva un orden topológico acíclico orientado (DAG).
-            </p>
-            <div className="font-mono bg-white p-2 rounded-xl border border-[#D6E3DC] text-[11px] text-[#274C3D] font-bold">
-              Ciclo_Dirigido(G) = ∅ (Acíclico)
-            </div>
+                <span className="font-bold text-[#274C3D] block uppercase">
+                  {r.codigo}: {r.titulo}
+                </span>
+                <div className="font-mono bg-white p-2 rounded-xl border border-[#D6E3DC] text-[11px] text-[#274C3D] font-bold">
+                  {r.formula}
+                </div>
+                <p className="text-[11px] text-slate-600">{r.implementacion_sql_api}</p>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
       {/* MODAL 1: Nuevo Nodo */}
       {modalNodo && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-5 border border-[#D6E3DC] shadow-xl">
-            <h3 className="text-lg font-bold text-[#1F2925]">
-              Registrar Nuevo Nodo de Red
-            </h3>
+            <h3 className="text-lg font-bold text-[#1F2925]">Registrar Nuevo Nodo de Red</h3>
             <form onSubmit={handleCrearNodo} className="space-y-4 text-xs">
               <FormField label="Centro Asociado">
                 <select
                   value={idCentroNodo}
-                  onChange={(e) => setIdCentroNodo(Number(e.target.value))}
+                  onChange={(e) => setIdCentroNodo(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
                 >
-                  {grafoData?.nodos?.map((n: any) => (
-                    <option key={n.id_nodo} value={n.id_centro}>
-                      {n.nombre_centro} ({n.codigo_centro})
+                  {centros.map((c) => (
+                    <option key={c.id_centro} value={c.id_centro}>
+                      {c.nombre_centro} ({c.codigo_centro})
                     </option>
                   ))}
                 </select>
@@ -441,9 +413,11 @@ const RedFlujoPage: React.FC = () => {
                 </select>
               </FormField>
 
-              <FormField label="Capacidad de Procesamiento (Ton/Semana)">
+              <FormField label="Capacidad de Procesamiento (Ton)">
                 <Input
                   type="number"
+                  step="0.5"
+                  min="1"
                   value={capNodo}
                   onChange={(e) => setCapNodo(Number(e.target.value))}
                   required
@@ -451,12 +425,7 @@ const RedFlujoPage: React.FC = () => {
               </FormField>
 
               <div className="flex justify-end gap-2.5 pt-3 border-t border-[#EBF2EE]">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setModalNodo(false)}
-                >
+                <Button type="button" variant="secondary" size="sm" onClick={() => setModalNodo(false)}>
                   Cancelar
                 </Button>
                 <Button type="submit" variant="primary" size="sm">
@@ -479,10 +448,10 @@ const RedFlujoPage: React.FC = () => {
               <FormField label="Nodo Origen (Salida)">
                 <select
                   value={aristaOrig}
-                  onChange={(e) => setAristaOrig(Number(e.target.value))}
+                  onChange={(e) => setAristaOrig(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
                 >
-                  {grafoData?.nodos?.map((n: any) => (
+                  {grafoData?.nodos?.map((n) => (
                     <option key={n.id_nodo} value={n.id_nodo}>
                       {n.nombre_centro} ({n.codigo_centro})
                     </option>
@@ -493,10 +462,10 @@ const RedFlujoPage: React.FC = () => {
               <FormField label="Nodo Destino (Llegada)">
                 <select
                   value={aristaDest}
-                  onChange={(e) => setAristaDest(Number(e.target.value))}
+                  onChange={(e) => setAristaDest(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-white border border-[#D6E3DC] text-slate-800 text-xs rounded-xl focus:border-[#274C3D] outline-none"
                 >
-                  {grafoData?.nodos?.map((n: any) => (
+                  {grafoData?.nodos?.map((n) => (
                     <option key={n.id_nodo} value={n.id_nodo}>
                       {n.nombre_centro} ({n.codigo_centro})
                     </option>
@@ -505,40 +474,29 @@ const RedFlujoPage: React.FC = () => {
               </FormField>
 
               <div className="grid grid-cols-2 gap-3">
-                <FormField label="Capacidad (Ton)">
-                  <Input
-                    type="number"
-                    value={capFlujoTon}
-                    onChange={(e) => setCapFlujoTon(Number(e.target.value))}
-                    required
-                  />
-                </FormField>
                 <FormField label="Distancia (km)">
                   <Input
                     type="number"
+                    step="0.1"
+                    min="0.1"
                     value={distKm}
                     onChange={(e) => setDistKm(Number(e.target.value))}
                     required
                   />
                 </FormField>
+                <FormField label="Tiempo Estimado (Min)">
+                  <Input
+                    type="number"
+                    min="1"
+                    value={tiempoMin}
+                    onChange={(e) => setTiempoMin(Number(e.target.value))}
+                    required
+                  />
+                </FormField>
               </div>
 
-              <FormField label="Tiempo Estimado (Minutos)">
-                <Input
-                  type="number"
-                  value={tiempoMin}
-                  onChange={(e) => setTiempoMin(Number(e.target.value))}
-                  required
-                />
-              </FormField>
-
               <div className="flex justify-end gap-2.5 pt-3 border-t border-[#EBF2EE]">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setModalArista(false)}
-                >
+                <Button type="button" variant="secondary" size="sm" onClick={() => setModalArista(false)}>
                   Cancelar
                 </Button>
                 <Button type="submit" variant="primary" size="sm">

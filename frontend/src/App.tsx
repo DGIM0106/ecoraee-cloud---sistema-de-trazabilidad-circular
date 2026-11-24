@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, useLocation, Link } from "react-router-do
 import { AuthProvider } from "./context/AuthContext";
 import Navbar from "./components/organisms/NavBar";
 import DashboardPage from "./pages/DashboardPage";
+import CatalogosPage from "./pages/CatalogosPage";
 import DispositivosPage from "./pages/DispositivosPage";
 import SolicitudesLotesPage from "./pages/SolicitudesLotesPage";
 import RedFlujoPage from "./pages/RedFlujoPage";
@@ -21,6 +22,7 @@ const LayoutContent: React.FC = () => {
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<DashboardPage />} />
+          <Route path="/catalogos" element={<CatalogosPage />} />
           <Route path="/dispositivos" element={<DispositivosPage />} />
           <Route path="/logistica" element={<SolicitudesLotesPage />} />
           <Route path="/red-flujo" element={<RedFlujoPage />} />
@@ -38,15 +40,19 @@ const LayoutContent: React.FC = () => {
                 <Recycle className="w-3.5 h-3.5 text-emerald-300" />
               </div>
               <span className="font-bold text-[#1F2925]">
-                EcoRAEE Cloud · Parte II (Desarrollo Local Integrado)
+                EcoRAEE Cloud · Arquitectura DTOs + UUID
               </span>
             </div>
-            <div className="flex items-center gap-4">
-              <span>SQL Server (EcoRAEE_DB)</span>
+            <div className="flex items-center gap-4 flex-wrap">
+              <span>AWS RDS SQL Server</span>
               <span>·</span>
-              <span>FastAPI (Python)</span>
+              <span>FastAPI (EC2)</span>
               <span>·</span>
-              <span>React 19 + TypeScript</span>
+              <span>AWS S3</span>
+              <span>·</span>
+              <Link to="/catalogos" className="text-[#274C3D] font-bold hover:underline">
+                Catálogos BD
+              </Link>
               <span>·</span>
               <Link to="/auth" className="text-[#274C3D] font-bold hover:underline">
                 Cambiar Rol
