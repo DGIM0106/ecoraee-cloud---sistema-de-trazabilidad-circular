@@ -1,0 +1,6 @@
+{
+  "name": "EcoRAEE Cloud - Sistema de Trazabilidad Circular",
+  "description": "Plataforma web para gestión, trazabilidad y optimización de residuos de aparatos eléctricos y electrónicos (RAEE) con frontend React, API FastAPI y base de datos SQL Server.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
