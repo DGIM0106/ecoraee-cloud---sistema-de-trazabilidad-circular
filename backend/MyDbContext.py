@@ -7,10 +7,7 @@ import os
 
 load_dotenv()
 
-database_url = os.getenv(
-    "DATABASE_URL",
-    "mssql+pyodbc://@localhost/EcoRAEE_DB?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&TrustServerCertificate=yes"
-)
+database_url = os.getenv("DATABASE_URL")
 
 
 engine = create_engine(database_url, echo= True)
